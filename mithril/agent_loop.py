@@ -143,7 +143,12 @@ def run_agent_improved(
     tools: list[dict] | None = None,
     max_turns: int = 55,
     transcript_path: str | None = None,
-    compact_threshold_tokens: int = 110_000,
+    # Both Opus 4.8 and DeepSeek v4 have ~1M-token context windows, and these
+    # tasks only reach ~100-300K — so compaction should essentially never fire.
+    # The old 110K threshold (sized for ~128K models) compacted prematurely and
+    # *hurt* (it disrupted a DeepSeek run into re-reading docs). Set well below 1M
+    # for headroom; the context-overflow handler is the real backstop.
+    compact_threshold_tokens: int = 700_000,
     max_compactions: int = 4,
     max_coverage_nudges: int = 2,
     max_verify_passes: int = 1,
