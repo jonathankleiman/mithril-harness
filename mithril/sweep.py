@@ -101,7 +101,9 @@ def main():
     ap.add_argument("--judge-model", default=config.JUDGE_MODEL)
     ap.add_argument("--max-turns", type=int, default=80)
     ap.add_argument("--concurrency", type=int, default=2)
-    ap.add_argument("--judge-parallel", type=int, default=4)
+    ap.add_argument("--judge-parallel", type=int, default=3,
+                    help="concurrent judge calls. Keep low for GPT-5.4 (1M TPM limit — high "
+                         "parallelism on large deliverables triggers 429s that look like fails).")
     ap.add_argument("--reasoning-effort", default=None, help="agent thinking effort (e.g. max) — Claude/Anthropic agent")
     ap.add_argument("--run-tag", default=datetime.now().strftime("%Y%m%d-%H%M%S"))
     args = ap.parse_args()

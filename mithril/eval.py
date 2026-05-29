@@ -20,7 +20,7 @@ from mithril.judge import make_judge
 
 
 def evaluate_run(run_dir: str | Path, task_id: str, judge_model: str | None = None,
-                 parallel: int = 4) -> dict:
+                 parallel: int = 3) -> dict:
     run_dir = Path(run_dir)
     task_dir = config.TASKS_DIR / Path(*task_id.split("/"))
     cfg = json.loads((task_dir / "task.json").read_text())

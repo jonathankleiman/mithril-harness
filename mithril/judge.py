@@ -35,7 +35,7 @@ class GPT54Judge:
     drops into score_rubric unchanged. This is the judge used for the official
     leaderboard comparison (GPT-5.4 grades the LAB rubric)."""
 
-    def __init__(self, model: str = "gpt-5.4", max_retries: int = 4):
+    def __init__(self, model: str = "gpt-5.4", max_retries: int = 8):
         self.model = model
         self.max_retries = max_retries
         self.client = openai.OpenAI(timeout=_JUDGE_TIMEOUT, max_retries=0)  # reads OPENAI_API_KEY
@@ -57,7 +57,13 @@ class GPT54Judge:
                 resp = self.client.responses.create(**kwargs)
             except Exception as e:  # noqa: BLE001
                 last = e
-                time.sleep(delay); delay = min(delay * 2, 60)
+                # Rate limits (TPM) need a longer wait than transient errors — the
+                # budget resets per minute. Back off harder so a 429 never gets
+                # mistaken for a content failure (it was, on assess-cfpb).
+                msg = str(e).lower()
+                is_rate = "429" in msg or "rate limit" in msg or "tokens per min" in msg
+                time.sleep(max(delay, 25.0) if is_rate else delay)
+                delay = min(delay * 2, 60)
                 continue
             self.calls += 1
             u = getattr(resp, "usage", None)
