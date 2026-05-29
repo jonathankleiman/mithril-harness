@@ -51,6 +51,14 @@ def _output_files(output_dir: Path) -> list[str]:
     return [str(p.relative_to(output_dir)) for p in output_dir.rglob("*") if p.is_file()]
 
 
+def _output_md_bytes(output_dir: Path) -> int:
+    """Total bytes of the agent's markdown deliverables — used to tell productive
+    drafting (deliverable growing) from cosmetic churn (size flat)."""
+    if not output_dir.exists():
+        return 0
+    return sum(p.stat().st_size for p in output_dir.rglob("*.md") if p.is_file())
+
+
 VERIFY_PROMPT = (
     "Partner review before this goes out — one focused pass, then finish. Do not stop yet.\n\n"
     "Act as the reviewing partner who will sign this work:\n"
@@ -60,10 +68,52 @@ VERIFY_PROMPT = (
     "3. Walk your plan and the source documents once: is there any SUBSTANTIVE issue, deficiency, missing required "
     "item, inconsistency, or discrepancy you failed to capture or stated only vaguely? Legal work fails on the one "
     "material thing that was missed — add anything genuinely missing.\n"
-    "4. Confirm every part of the assignment is addressed and each finding is stated explicitly with its support.\n\n"
-    "Make only SUBSTANTIVE corrections — fixes to accuracy, completeness, or missing findings. Do NOT make cosmetic, "
-    "stylistic, or wording-only edits, and do not re-edit the same passage repeatedly. When the substantive review is "
-    "done and any real gaps are fixed, write 'REVIEW COMPLETE' and stop."
+    "4. Confirm every part of the assignment is addressed and each finding is stated explicitly with its support.\n"
+    "5. Structural check: if the assignment maps to, compares against, or analyzes a structured source instrument "
+    "(one with its own enumerated domains, schedules, articles, sections, or commitment categories), confirm the "
+    "deliverable reproduces that instrument's top-level categories as actual navigable HEADINGS, covering all or "
+    "nearly all of them. If a required category appears only inside tables/prose but not as a heading, restructure so "
+    "it is a heading — this is a SUBSTANTIVE completeness fix, not cosmetic, and IS permitted.\n\n"
+    "Make only SUBSTANTIVE corrections — fixes to accuracy, completeness, missing findings, or the structural "
+    "conformance above. Do NOT make cosmetic, stylistic, or wording-only edits, and do not re-edit the same passage "
+    "repeatedly. When the substantive review is done and any real gaps are fixed, write 'REVIEW COMPLETE' and stop."
+)
+
+# Gate D — a dedicated depth/completeness critic, run once AFTER the accuracy verify
+# pass. Targets the dominant all-pass failure mode: the agent NAMES an issue but
+# stops short of its specific mechanism, consequence, every instance, or the
+# contrary argument. Every checklist item is a GENERIC procedural test applied to
+# the agent's OWN findings — it encodes no answers (contamination-safe). Additive
+# and bounded (one pass) to avoid deliverable-bloat / over-edit regression.
+DEPTH_CRITIC_PROMPT = (
+    "Depth-and-completeness audit before sign-off. Do NOT restyle, shorten, or delete anything. Go finding by "
+    "finding through your deliverable and, for EACH one, run this checklist; where a box is unticked AND the answer "
+    "is material, add one or two sentences (no more) to close it:\n"
+    "1. APPLICATION: if you named a governing law, rule, standard, seat, or eligibility/regulatory status anywhere, "
+    "did you APPLY it to the specific instrument/right/order at hand and state the concrete consequence "
+    "(enforceability, validity, availability, impossibility) — not just name it?\n"
+    "2. ALL AVENUES: for every remedy, right, or procedure, did you enumerate every available route (institutional "
+    "AND court/regulatory, primary AND parallel/supplemental) — or affirmatively state none exists?\n"
+    "3. GENERAL-BEFORE-SPECIFIC: for every rule family or defined term you cited by a sub-part, did you also state "
+    "the governing umbrella/chapeau/general rule, or note its absence?\n"
+    "4. TWO TIME AXES: for every clause/condition/trigger you marked not-triggered, not-applicable, or satisfied, did "
+    "you also test whether it is an ongoing/forward-looking constraint a foreseeable later event would trip — naming "
+    "that event and its precise consequence?\n"
+    "5. ALL OPERATIVE DIMENSIONS: for every clause flagged as deviating on ONE axis (amount, duration), did you "
+    "separately check its other dimensions (scope of covered assets/persons, things acquired/arising AFTER the "
+    "trigger, geography, gating/eligibility conditions, carve-outs) against the applicable baseline?\n"
+    "6. DEADLINE TRIAD: for every deadline, did you state the precise trigger (including any later-of/earlier-of "
+    "disjunction), the exact duration, AND the actor who grants any extension or exercises discretion?\n"
+    "7. CONTRARY RISK: everywhere you concluded a right is preserved, a deadline is soft, or an omission is harmless "
+    "(\"without waiver\", \"may be deferred\", \"no risk\", \"acceptable\"), did you also state the strongest opposing "
+    "argument the other side could run and the protective step that defeats it?\n"
+    "8. WHO BENEFITS: for every discretionary or approval-gated provision (board approval, consent, designation "
+    "rights), did you map the discretion-holder to the parties and flag whether it disproportionately advantages the "
+    "drafting/controlling party?\n"
+    "9. BASELINE CHARACTERIZATION: for every 'should-add'/missing-provision recommendation, did you state where it "
+    "sits on the market/standard-form spectrum with a DEFINITE characterization, not hedged frequency language?\n\n"
+    "Apply each lens to EVERY instance it touches (every party, clause, section, item) — do not analyze one and skip "
+    "the rest. When the audit is complete and any material gaps are closed, write 'AUDIT COMPLETE' and stop."
 )
 
 COMPACT_INSTRUCTION = (
@@ -96,6 +146,7 @@ def run_agent_improved(
     max_compactions: int = 4,
     max_coverage_nudges: int = 2,
     max_verify_passes: int = 1,
+    max_depth_passes: int = 1,
 ) -> dict:
     from harness.tools import get_all_tool_definitions
 
@@ -113,9 +164,10 @@ def run_agent_improved(
 
     total_input_tokens = total_output_tokens = 0
     turn_count = 0
-    coverage_nudges = verify_passes = compactions = deliverable_nudges = 0
+    coverage_nudges = verify_passes = compactions = deliverable_nudges = depth_passes = 0
     consecutive_edit_turns = 0
     edit_spree_nudged = False
+    prev_md_bytes = 0
     last_input_tokens = 0
     context_overflow = False
     start = time.time()
@@ -149,7 +201,11 @@ def run_agent_improved(
                         context_overflow = False
                         continue
                     break
-                raise
+                # Any other mid-run API error (e.g. a transient 400/overload):
+                # stop the loop gracefully so the deliverable produced so far is
+                # still finalized, graded, and auditable — never crash the run.
+                log({"turn": turn, "role": "error", "error": f"{type(e).__name__}: {err[:300]}"})
+                break
 
             messages.append(response.message)
             total_input_tokens += response.input_tokens
@@ -186,29 +242,23 @@ def run_agent_improved(
                     log({"turn": turn, "role": "gate", "gate": "coverage", "unread": unread})
                     continue
 
-                # Gate C: forced verification pass.
+                # Gate C: forced verification pass (accuracy-focused).
                 if verify_passes < max_verify_passes:
                     verify_passes += 1
                     messages.append(adapter.make_user_message(VERIFY_PROMPT))
                     log({"turn": turn, "role": "gate", "gate": "verify", "pass": verify_passes})
                     continue
 
-                break  # all gates satisfied — genuinely done
+                # Gate D: depth/completeness critic (one bounded pass) — pushes every
+                # finding to its full depth (mechanism, consequence, all instances,
+                # contrary argument). Attacks the dominant all-pass failure mode.
+                if depth_passes < max_depth_passes:
+                    depth_passes += 1
+                    messages.append(adapter.make_user_message(DEPTH_CRITIC_PROMPT))
+                    log({"turn": turn, "role": "gate", "gate": "depth_critic", "pass": depth_passes})
+                    continue
 
-            # ── edit-spree guard: stop runaway cosmetic polishing ──
-            names = [tc.name for tc in response.tool_calls]
-            if names and all(n == "edit" for n in names):
-                consecutive_edit_turns += 1
-            else:
-                consecutive_edit_turns = 0
-            if consecutive_edit_turns >= 12 and not edit_spree_nudged:
-                edit_spree_nudged = True
-                consecutive_edit_turns = 0
-                messages.append(adapter.make_user_message(
-                    "You have been editing for many turns. Stop polishing. Make only edits that fix a genuine "
-                    "substantive error or add a genuinely missing material finding. If there are none, write "
-                    "'REVIEW COMPLETE' and stop now."))
-                log({"turn": turn, "role": "gate", "gate": "edit_spree"})
+                break  # all gates satisfied — genuinely done
 
             # ── execute tool calls ──
             results = []
@@ -219,6 +269,30 @@ def run_agent_improved(
                      "result_preview": out[:1200]})
                 results.append((tc.id, out))
             messages.extend(adapter.make_tool_result_messages(results))
+
+            # ── edit-spree guard (growth-aware) ──
+            # Only treat edit-only turns that DON'T grow the deliverable as a
+            # "spree" (true cosmetic churn). Section-by-section drafting via edits
+            # grows the deliverable, so it never trips this — the bug that was
+            # blocking the depth-critic on long deliverables. The nudge is appended
+            # AFTER the tool results (correct message ordering) and never tells the
+            # agent to bypass the verify/depth gates — those still fire on stop.
+            names = [tc.name for tc in response.tool_calls]
+            cur_md = _output_md_bytes(output_dir)
+            grew = cur_md - prev_md_bytes
+            prev_md_bytes = cur_md
+            if names and all(n == "edit" for n in names) and grew < 300:
+                consecutive_edit_turns += 1
+            else:
+                consecutive_edit_turns = 0  # productive (added content) or used other tools
+            if consecutive_edit_turns >= 10 and not edit_spree_nudged:
+                edit_spree_nudged = True
+                consecutive_edit_turns = 0
+                messages.append(adapter.make_user_message(
+                    "You've made several edits in a row without adding new content. Stop reworking wording. "
+                    "Only edit further to add a genuinely missing material finding; if the analysis is substantively "
+                    "complete, simply stop — the final review steps will run automatically."))
+                log({"turn": turn, "role": "gate", "gate": "edit_spree"})
 
             # ── compaction check ──
             if last_input_tokens > compact_threshold_tokens and compactions < max_compactions:
@@ -242,6 +316,7 @@ def run_agent_improved(
         "compactions": compactions,
         "coverage_nudges": coverage_nudges,
         "verify_passes": verify_passes,
+        "depth_passes": depth_passes,
         "tool_metrics": metrics,
     }
 

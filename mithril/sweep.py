@@ -60,7 +60,8 @@ def _cached(run_dir: Path, task_id: str, arm: str) -> dict | None:
 
 
 def run_one(task_id: str, arm: str, agent_model: str, judge_model: str,
-            run_tag: str, max_turns: int, judge_parallel: int) -> dict:
+            run_tag: str, max_turns: int, judge_parallel: int,
+            reasoning_effort: str | None = None) -> dict:
     rec = {"task": task_id, "arm": arm}
     run_id = f"sweep-{run_tag}/{task_id}/{arm}"
     run_dir = config.RESULTS_DIR / run_id
@@ -68,7 +69,8 @@ def run_one(task_id: str, arm: str, agent_model: str, judge_model: str,
     if hit is not None:
         return hit
     try:
-        out = run_task(task_id, model=agent_model, harness=arm, max_turns=max_turns, run_id=run_id)
+        out = run_task(task_id, model=agent_model, harness=arm, max_turns=max_turns,
+                       run_id=run_id, reasoning_effort=reasoning_effort)
         scores = evaluate_run(out["run_dir"], task_id, judge_model=judge_model, parallel=judge_parallel)
         rec.update({
             "all_pass": scores["all_pass"],
@@ -100,6 +102,7 @@ def main():
     ap.add_argument("--max-turns", type=int, default=80)
     ap.add_argument("--concurrency", type=int, default=2)
     ap.add_argument("--judge-parallel", type=int, default=4)
+    ap.add_argument("--reasoning-effort", default=None, help="agent thinking effort (e.g. max) — Claude/Anthropic agent")
     ap.add_argument("--run-tag", default=datetime.now().strftime("%Y%m%d-%H%M%S"))
     args = ap.parse_args()
 
@@ -118,7 +121,8 @@ def main():
     results = []
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         futs = {pool.submit(run_one, t, arm, args.agent_model, args.judge_model,
-                            args.run_tag, args.max_turns, args.judge_parallel): (t, arm)
+                            args.run_tag, args.max_turns, args.judge_parallel,
+                            args.reasoning_effort): (t, arm)
                 for t, arm in jobs}
         for fut in as_completed(futs):
             t, arm = futs[fut]
