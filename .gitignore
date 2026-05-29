@@ -1,0 +1,23 @@
+# Secrets — NEVER commit
+.env
+*.key
+**/credentials*
+
+# The benchmark itself (Harvey's MIT-licensed data, ~428MB) — cloned as a sibling, not vendored
+harvey-labs/
+
+# Run outputs (large; derived from Harvey task data — share with Harvey via audit bundles, not the public repo)
+results/
+audit-bundles/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Scratch
+*.pid
+*.log
+sample*.json
+.DS_Store

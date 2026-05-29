@@ -1,0 +1,29 @@
+Mithril Harness
+Copyright (C) 2026 Jonathan Kleiman
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See the LICENSE file for the full text.
+
+────────────────────────────────────────────────────────────────────────────
+ADDITIONAL TERMS under Section 7(b) of the GNU AGPL v3 — ATTRIBUTION
+────────────────────────────────────────────────────────────────────────────
+
+As permitted by Section 7(b) of the GNU Affero General Public License v3, any
+modified or unmodified copy, conveyance, or network use of this software (or
+works derived from it) MUST preserve the following author attribution in a
+reasonable and prominent location (e.g., an "About" screen, a README, an
+accompanying NOTICE file, and any published results, reports, or blog posts
+produced using this software):
+
+    "Mithril Harness — created by Jonathan Kleiman (2026)."
+
+Removing or obscuring this attribution is not permitted.
+
+────────────────────────────────────────────────────────────────────────────
+
+This project builds on Harvey's Legal Agent Benchmark (LAB), which is the
+separate, MIT-licensed work of Harvey AI (https://github.com/harveyai/harvey-labs)
+and is NOT included in or relicensed by this repository. LAB must be obtained
+separately under its own license.
