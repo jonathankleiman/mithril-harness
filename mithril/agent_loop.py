@@ -27,6 +27,7 @@ All four are generic legal-work discipline; none encode answers.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -264,9 +265,14 @@ def run_agent_improved(
             results = []
             for tc in response.tool_calls:
                 out = tool_executor.execute(tc.name, tc.arguments)
+                # Full arguments are logged (proves no rubric access); the result
+                # is previewed but its full length + hash are recorded so the
+                # audit trail is verifiable without storing megabytes of doc text.
                 log({"turn": turn, "role": "tool", "tool_name": tc.name,
                      "arguments": tc.arguments if isinstance(tc.arguments, str) else json.dumps(tc.arguments),
-                     "result_preview": out[:1200]})
+                     "result_len": len(out),
+                     "result_sha256": hashlib.sha256(out.encode("utf-8", "replace")).hexdigest()[:16],
+                     "result_preview": out[:4000]})
                 results.append((tc.id, out))
             messages.extend(adapter.make_tool_result_messages(results))
 

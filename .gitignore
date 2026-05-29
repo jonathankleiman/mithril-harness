@@ -21,3 +21,7 @@ __pycache__/
 *.log
 sample*.json
 .DS_Store
+
+# exported conversations may contain secrets — never commit
+*.txt
+2026-*-HARNESS*.txt

@@ -47,13 +47,30 @@ class LocalSandbox(Sandbox):
     def stop(self) -> None:
         self._started = False
 
+    # Env vars scrubbed from the agent's bash so it can never read API keys/secrets.
+    _SECRET_MARKERS = ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD",
+                       "ANTHROPIC", "OPENAI", "DEEPSEEK", "AWS_", "GH_", "GITHUB")
+    # Substrings that indicate an attempt to reach the grading rubric (contamination).
+    _CONTAM_MARKERS = ("task.json", "match_criteria")
+
     def exec(self, command, *, cwd: str = WORKSPACE_PATH, timeout=None, env=None) -> ExecResult:
         self.assert_sandbox_path(cwd)
         timeout = timeout if timeout is not None else self.default_timeout
         host_cwd = self._to_host(cwd)
         host_cwd.mkdir(parents=True, exist_ok=True)
 
-        full_env = dict(os.environ)
+        # Contamination guard: deny any command that references the grading file.
+        low = command.lower()
+        if any(m in low for m in self._CONTAM_MARKERS):
+            return ExecResult(stdout="", returncode=1, timed_out=False,
+                              stderr="Error: command blocked — it references the grading rubric "
+                                     "(task.json/criteria), which is off-limits and would be a rule violation.")
+
+        # Scrub secrets from the bash environment, and DON'T source the login
+        # profile (-c not -lc) so the host shell can't re-introduce keys. The
+        # tools the agent needs (python3, pandoc, etc.) stay on PATH.
+        full_env = {k: v for k, v in os.environ.items()
+                    if not any(m in k.upper() for m in self._SECRET_MARKERS)}
         full_env.update({
             "DOCUMENTS_DIR": str(self.documents_dir),
             "OUTPUT_DIR": str(self.output_dir),
@@ -64,7 +81,7 @@ class LocalSandbox(Sandbox):
 
         try:
             result = subprocess.run(
-                ["bash", "-lc", command],
+                ["bash", "-c", command],
                 cwd=str(host_cwd),
                 capture_output=True,
                 text=True, encoding="utf-8", errors="replace",

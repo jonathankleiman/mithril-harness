@@ -33,6 +33,9 @@ def evaluate_run(run_dir: str | Path, task_id: str, judge_model: str | None = No
 
     n_criteria = len(result.criteria_results)
     n_passed = sum(1 for c in result.criteria_results if c["verdict"] == "pass")
+    # Judge-infra errors are tagged "JUDGE_ERROR:"; count them separately so an
+    # all-pass miss caused by a flaky judge isn't mistaken for a real criterion fail.
+    n_judge_errors = sum(1 for c in result.criteria_results if str(c.get("reasoning", "")).startswith("JUDGE_ERROR"))
     all_pass = n_criteria > 0 and n_passed == n_criteria
 
     scores = {
@@ -42,7 +45,10 @@ def evaluate_run(run_dir: str | Path, task_id: str, judge_model: str | None = No
         "all_pass": all_pass,
         "n_criteria": n_criteria,
         "n_passed": n_passed,
-        "summary": f"{n_passed}/{n_criteria} criteria passed." + (" ALL-PASS." if all_pass else f" Missed {n_criteria-n_passed} — FAIL."),
+        "judge_errors": n_judge_errors,
+        "all_pass_reliable": n_judge_errors == 0,  # all-pass is only trustworthy with 0 judge errors
+        "summary": f"{n_passed}/{n_criteria} criteria passed." + (" ALL-PASS." if all_pass else f" Missed {n_criteria-n_passed} — FAIL.")
+                   + (f"  [⚠ {n_judge_errors} judge-errors — all-pass unreliable]" if n_judge_errors else ""),
         "criteria_results": result.criteria_results,
         "judge_model": judge.model,
         "judge_usage": judge.usage_dict(),

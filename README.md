@@ -29,9 +29,13 @@ It also **fixes a real defect** in the stock harness: `grep` over a `.docx` sear
 
 ## Results
 
-Grading uses LAB's `score_rubric` **unchanged**; only the judge *model* is configurable. The headline comparison is the official setup: **120 LAB tasks, judged by GPT-5.4**, agent = DeepSeek v4-pro. (Numbers and the full technical report are produced by the run pipeline below and live in `REPORT.md`.)
+Grading uses LAB's `score_rubric` **unchanged**; only the judge *model* is configurable. The intended headline run is the official setup — **120 LAB tasks, judged by GPT-5.4** — but **that full run has not been done yet.** All numbers below are **directional, on a fixed 6-task slice** (37–59 criteria/task); the all-pass 95% CI at N=6 is ~[0, 60%]. Full detail + the path to the 120-task number is in [`REPORT.md`](REPORT.md). Field bars to beat (chart, 120 tasks, GPT-5.4): **criterion-pass 92.4%, all-pass 19.5%** (Sonnet 4.6, in-harness).
 
-Early signal (6-task A/B, same model both arms): the harness raised all-pass from **0% → 17%** and criterion-pass from **83.7% → 86.1%**, including a clean **58/58** where the stock harness caught 47/58 — the coverage+verify discipline doing its job.
+**Directional (6-task slice):**
+- *Harness A/B, same model (flash, both arms):* baseline **83.7% criterion / 0% all-pass** → mithril **86.1% / 17%** (incl. a clean 58/58).
+- *Opus 4.8 + max thinking, GPT-5.4 judge, harness iteration:* 95.3% / 17% → **97.3% criterion / 33% all-pass** after adding the depth-critic gate (it converts the one-needle near-misses).
+
+So on this slice both field bars are exceeded — but it is **not** the representative 120-task number. A model over the real criteria distribution shows **30% all-pass ⇔ ~98% per-criterion** (we measured 97.3%); the remaining ~0.7pp is what the depth-critic targets. See `REPORT.md` §8.
 
 ## Setup
 

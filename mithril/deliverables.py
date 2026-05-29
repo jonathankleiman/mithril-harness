@@ -134,6 +134,30 @@ def _render_xlsx(md_text: str, dest: Path) -> bool:
         return False
 
 
+def _roundtrip_ok(dest: Path) -> tuple[bool, str]:
+    """Parse a rendered Office file back through the grader's reader and confirm
+    the content survived (non-trivial text + at least one heading for docx)."""
+    ext = dest.suffix.lower()
+    try:
+        if ext == ".docx":
+            r = subprocess.run(["pandoc", str(dest), "-t", "markdown", "--wrap=none"],
+                               capture_output=True, text=True, timeout=60)
+            txt = r.stdout or ""
+            if r.returncode != 0 or len(txt.strip()) < 200:
+                return False, f"docx round-trip empty/short ({len(txt.strip())} chars)"
+            if "#" not in txt:
+                return False, "docx round-trip has no headings"
+            return True, f"ok ({len(txt.strip())} chars)"
+        if ext == ".xlsx":
+            import pandas as _pd
+            sheets = _pd.read_excel(str(dest), sheet_name=None)
+            cells = sum(s.size for s in sheets.values())
+            return (cells > 0, f"xlsx {cells} cells" if cells else "xlsx empty")
+        return True, "no validation for this type"
+    except Exception as e:  # noqa: BLE001
+        return False, f"round-trip error: {type(e).__name__}: {e}"
+
+
 def finalize_deliverables(output_dir: Path, expected: list[str]) -> dict:
     """Ensure every requested deliverable exists as a valid Office file. Returns a report."""
     output_dir = Path(output_dir)
@@ -143,7 +167,8 @@ def finalize_deliverables(output_dir: Path, expected: list[str]) -> dict:
         ext = dest.suffix.lower()
 
         if _is_ooxml(dest):
-            report[deliverable] = "kept (valid)"
+            rt_ok, rt_why = _roundtrip_ok(dest)
+            report[deliverable] = f"kept (valid); round-trip {rt_why}" if rt_ok else f"kept but RENDER FAILED round-trip: {rt_why}"
             continue
 
         src = _find_markdown_source(output_dir, deliverable)
@@ -158,8 +183,13 @@ def finalize_deliverables(output_dir: Path, expected: list[str]) -> dict:
         elif ext == ".xlsx":
             ok = _render_xlsx(md_text, dest)
         else:
-            # Unknown/extension-less: just copy the markdown content under the name.
             dest.write_text(md_text, encoding="utf-8")
             ok = True
-        report[deliverable] = f"rendered from {src.name}" if ok else f"RENDER FAILED from {src.name}"
+        if not ok:
+            report[deliverable] = f"RENDER FAILED from {src.name}"
+            continue
+        # Round-trip: parse the rendered file back through the grader's reader.
+        rt_ok, rt_why = _roundtrip_ok(dest)
+        report[deliverable] = (f"rendered from {src.name}; round-trip {rt_why}" if rt_ok
+                               else f"rendered from {src.name} but RENDER FAILED round-trip: {rt_why}")
     return report

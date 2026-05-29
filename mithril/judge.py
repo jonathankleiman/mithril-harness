@@ -70,7 +70,7 @@ class GPT54Judge:
                 return _LabJudge._parse_json(resp.output_text or "")
             except Exception as e:  # noqa: BLE001
                 last = e
-        return {"verdict": "fail", "reasoning": f"GPT-5.4 judge failed: {last}"}
+        return {"verdict": "fail", "reasoning": f"JUDGE_ERROR: GPT-5.4 judge failed: {last}"}
 
     def cost_usd(self) -> float:
         full = max(self.in_tok - self.cached_in, 0)
@@ -152,8 +152,9 @@ class DeepSeekJudge:
                 return _LabJudge._parse_json(text)
             except Exception as e:  # noqa: BLE001
                 last_err = e
-        # Unparseable → conservative fail (never crash the sweep).
-        return {"verdict": "fail", "reasoning": f"judge unparseable/failed: {last_err}"}
+        # Judge infra failure → conservative fail, but TAGGED so it can be told
+        # apart from a genuine criterion failure (and excluded/retried in aggregation).
+        return {"verdict": "fail", "reasoning": f"JUDGE_ERROR: unparseable/failed: {last_err}"}
 
     def cost_usd(self) -> float:
         rate = config.PRICE_PER_M.get(self.model)

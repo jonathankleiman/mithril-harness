@@ -63,7 +63,9 @@ def _contamination_scan(transcript_path: Path) -> list[str]:
         except json.JSONDecodeError:
             continue
         if e.get("role") in ("assistant", "tool"):
-            blob = (e.get("text", "") + " " + str(e.get("arguments", ""))).lower()
+            # null-safe: stock-loop transcripts can log text=None
+            blob = (str(e.get("text") or "") + " " + str(e.get("arguments") or "")
+                    + " " + str(e.get("result_preview") or "")).lower()
             for tok in _CONTAM_TOKENS:
                 if tok in blob:
                     hits.append(f"turn {e.get('turn')}: {e.get('role')} mentioned '{tok}'")
@@ -131,26 +133,45 @@ def run_task(
         sandbox.stop()
 
     deliv_report = finalize_deliverables(output_dir, spec.deliverables)
-    contam = _contamination_scan(transcript_path)
+    # Optional scans must never crash the run / lose metrics — they're wrapped.
+    try:
+        contam = _contamination_scan(transcript_path)
+    except Exception as e:  # noqa: BLE001
+        contam = [f"scan_error: {type(e).__name__}: {e}"]
+
+    turn_count = result.get("turn_count") or 0
+    verify_passes = result.get("verify_passes", 0)
+    depth_passes = result.get("depth_passes", 0)
+    max_turns_hit = turn_count >= max_turns
+    deliv_ok = all("MISSING" not in v and "FAILED" not in v for v in deliv_report.values()) if deliv_report else True
+    # A run is "full-harness comparable" only if it finished cleanly, both review
+    # gates fired, it didn't truncate at max_turns, and the deliverable is valid.
+    full_harness_run = bool(result.get("finished_cleanly") and not result.get("context_overflow")
+                            and verify_passes >= 1 and depth_passes >= 1 and not max_turns_hit and deliv_ok)
 
     metrics = {
         "task": task_id, "model": model, "harness": harness, "run_id": run_id,
-        "turn_count": result.get("turn_count"),
+        "turn_count": turn_count,
         "input_tokens": result.get("input_tokens"),
         "output_tokens": result.get("output_tokens"),
         "wall_clock_seconds": result.get("wall_clock_seconds"),
         "finished_cleanly": result.get("finished_cleanly"),
         "context_overflow": result.get("context_overflow", False),
+        "max_turns_hit": max_turns_hit,
         "compactions": result.get("compactions", 0),
         "coverage_nudges": result.get("coverage_nudges", 0),
-        "verify_passes": result.get("verify_passes", 0),
+        "verify_passes": verify_passes,
+        "depth_passes": depth_passes,
+        "full_harness_run": full_harness_run,
         "deliverables_report": deliv_report,
+        "deliverable_ok": deliv_ok,
         "contamination_flags": contam,
-        "deepseek_usage": (adapter.usage_dict() if hasattr(adapter, "usage_dict")
-                           else _anthropic_usage(result, model)),
+        "agent_usage": (adapter.usage_dict() if hasattr(adapter, "usage_dict")
+                        else _anthropic_usage(result, model)),
         **result.get("tool_metrics", {}),
         "completed_at": datetime.now().isoformat(),
     }
+    metrics["deepseek_usage"] = metrics["agent_usage"]  # back-compat alias for existing tooling
     (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
     return {"run_id": run_id, "run_dir": str(run_dir), "metrics": metrics}
 

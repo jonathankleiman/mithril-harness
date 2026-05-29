@@ -171,22 +171,105 @@ appointment but not explaining the *reason* for it), which is reassuring.
 
 ## 6. Results
 
-<!-- FILL FROM results/sweep-ab15/summary.json -->
-_pending sweep completion_
+**Scope, stated up front:** all results below are on a **6-task slice** (a fixed
+stratified set spanning 37–59 criteria/task), not the official 120-task sample.
+They are **directional**, not leaderboard-comparable — the all-pass 95% CI at
+N=6 is ~[0, 60%]. The criterion-pass numbers are pooled over ~300 criteria and
+are far tighter. A pre-registered, representative 120-task run (judged by the
+official GPT-5.4) is the next step (§8). Field bars to beat (chart, 120 tasks,
+GPT-5.4 judge): **criterion-pass 92.4%, all-pass 19.5%** (Claude Sonnet 4.6,
+in-harness).
+
+### 6a. Harness A/B, same model (DeepSeek-v4-flash, both arms) — isolates the harness
+
+| Harness | Criterion-pass | All-pass |
+|---|---|---|
+| baseline (stock loop) | 83.7% | 0/6 = 0% |
+| mithril | **86.1%** | **1/6 = 17%** (incl. a clean 58/58) |
+
+### 6b. Same model, harness iteration (Opus 4.8, max thinking, GPT-5.4 judge)
+
+| Iteration | Harness | Criterion-pass | All-pass |
+|---|---|---|---|
+| iter1 | mithril, no depth-critic | 95.3% | 1/6 = 17% |
+| iter2 | mithril **+ depth-critic** | **97.3%** | **2/6 = 33%** |
+
+The **depth-critic gate (§2.4-style "completeness" pass) converted near-misses to
+all-passes** where it fired (e.g. extract-default 49/50→50/50), lifting every
+task it touched (98→100, 97→98, 90→96, 86→89). On this slice, iter2's **97.3%
+criterion-pass exceeds the field's 92.4%, and 33% all-pass exceeds the field's
+19.5%** — directional, with the N=6 caveat above.
+
+DeepSeek-v4-pro on the same 6 (GPT-5.4 judge), pre-depth-critic: 89.5% criterion,
+0/6 all-pass (one variance-collapse task at 54%). Re-running with the
+depth-critic + edit-spree fix is the comparison in flight.
+
+**Cost (this whole investigation, 3 APIs):** ~$10 DeepSeek + ~$10 OpenAI/GPT-5.4
++ ~$34 Anthropic/Opus ≈ **~$54**. A single Opus 4.8 max-thinking task runs ~$8–10
+(68% of which is cache-read of the growing context; output ~32%). A measured
+experiment showed thinking-block *stripping* **backfires** (+80%) by busting the
+prompt cache — caching a stable prefix is the correct lever.
+
+### 6c. All-pass is noise-limited at this scale — for everyone
+
+All-pass is a binomial over N tasks. The chart's own field bars overlap at N=120
+(Sonnet [13,27], Qwen-iSFT [12,25], GPT-5.5 [10,23]) — the all-pass ranking is
+within one shared noise band. Criterion-pass is where clean statistical
+separation is achievable (±0.6pp at N=60). So the defensible headline is
+**criterion-pass; all-pass is reported as a point estimate with its CI.**
 
 ---
 
-## 7. Failure analysis
+## 7. Failure analysis (what the depth-critic targets)
 
-<!-- FILL FROM mithril/analyze.py -->
-_pending_
+A parallel diagnostic over the 14 missed criteria (Opus iter1) found the misses
+were **not** broad failures but **one-needle depth omissions**, in five generic
+modes: (1) a governing law/standard *named* but never *applied* to the specific
+instrument + consequence; (2) single-axis analysis that closes a clause without
+testing the forward-looking/orthogonal axis; (3) coverage stopping at the salient
+sub-rule, dropping the umbrella rule; (4) a favorable conclusion stated without
+the contrary risk / who-benefits angle; (5) a lens applied to most-but-not-all
+enumerated items. The **depth-critic's 9-point checklist** (apply-the-law,
+all-avenues, general-before-specific, two-time-axes, all-dimensions, deadline
+triad, contrary-risk, who-benefits, baseline-characterization) is the generic,
+criteria-blind closure of exactly these — and the iter2 lift confirms it works.
+
+Remaining lever (identified, fixed in code, not yet re-measured): the edit-spree
+guard was mis-firing on long section-by-section deliverables and *blocking* the
+depth-critic on ~1/3 of runs (e.g. compare-data-protection stuck at 40/41). The
+fix (growth-aware + correct ordering) should let the depth-critic fire on every
+run.
 
 ---
 
 ## 8. Path to the official leaderboard / 30%
 
-<!-- FILL: discussion grounded in observed all-pass-vs-rubric-size, judge swap, scaling sample -->
-_pending_
+The all-pass target reduces to a **per-criterion target**, computed over the real
+1,251-task criteria distribution (independence approx, which is *conservative* —
+real criteria correlate, so true all-pass runs higher):
+
+| per-criterion pass | → full-set all-pass (modeled) | reference |
+|---|---|---|
+| 96.0% | 11.3% | ≈ Opus-default's ~11% |
+| 97.0% | 18.9% | ≈ Sonnet-in-harness 19.5% |
+| 97.5% | 24.7% | |
+| **98.0%** | **32.3%** | **the 30% line** |
+| 99.0% | 56.2% | |
+
+Both anchor points validate the model (Opus-default 11% ⇒ ~96%/crit;
+Sonnet-in-harness 19.5% ⇒ ~97%/crit). We measured **97.3%/crit** (iter2) → a
+representative all-pass projection of **~22–25%**, already past the field's 19.5%.
+**30% needs ~98%/crit — just ~+0.7pp** — which the depth-critic (once reliably
+fired via the edit-spree fix) is the mechanism for. Note: a representative sample
+spans the full criteria range (up to 194); high-criteria tasks are all-pass
+ceiling-limited (a 90-criteria task can't exceed ~6% at 97%/crit), so the
+achievable-all-pass mass lives in the ≤60-criteria majority (58% of the set).
+
+**Next step:** pre-register a **stratified 60–120 task sample** (full criteria
+range, fixed seed), run DeepSeek-v4-pro and/or Opus 4.8 + mithril, judge with
+GPT-5.4, and report criterion-pass (clean separation) + all-pass (point estimate
++ CI). Estimated cost: ~$575 (Opus, 60 tasks) / ~$1,150 (Opus, 120); ~5× cheaper
+on Sonnet 4.7.
 
 ---
 
